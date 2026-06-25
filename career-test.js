@@ -15,6 +15,7 @@ const defaultData = {
 
 const RESULT_PROCESSING_DURATION_MS = 3600;
 const PROCESSING_STEP_DELAY_MS = 560;
+const COMPLETED_RESULT_STORAGE_KEY = "career-fit-test:v1:completed-result";
 
 const processingSteps = [
   "统计你的选择倾向",
@@ -292,6 +293,13 @@ export function renderCareerTest(root, data = defaultData) {
     return;
   }
 
+  const savedAnswers = readCompletedAnswers(root, data);
+  if (savedAnswers) {
+    state.answers = savedAnswers;
+    renderResult(state);
+    return;
+  }
+
   renderIntro(state);
 }
 
@@ -389,6 +397,7 @@ function renderQuestion(state) {
     optionButton.addEventListener("click", () => {
       state.answers[question.id] = optionButton.dataset.optionId;
       if (state.currentIndex === state.data.questions.length - 1) {
+        saveCompletedAnswers(state);
         renderProcessing(state);
         return;
       }
@@ -620,6 +629,59 @@ function hasSampleResultMode(root) {
   const view = root.ownerDocument?.defaultView;
   if (!view) return false;
   return new URLSearchParams(view.location.search).get("result") === "sample";
+}
+
+function readCompletedAnswers(root, data) {
+  const storage = getStorage(root);
+  if (!storage) return null;
+
+  try {
+    const rawPayload = storage.getItem(COMPLETED_RESULT_STORAGE_KEY);
+    if (!rawPayload) return null;
+    const payload = JSON.parse(rawPayload);
+    const answers = payload?.answers;
+    if (!areCompleteAnswers(answers, data)) {
+      storage.removeItem(COMPLETED_RESULT_STORAGE_KEY);
+      return null;
+    }
+    return answers;
+  } catch {
+    storage.removeItem(COMPLETED_RESULT_STORAGE_KEY);
+    return null;
+  }
+}
+
+function saveCompletedAnswers(state) {
+  if (!areCompleteAnswers(state.answers, state.data)) return;
+  const storage = getStorage(state.root);
+  if (!storage) return;
+
+  storage.setItem(
+    COMPLETED_RESULT_STORAGE_KEY,
+    JSON.stringify({
+      answers: state.answers,
+      completedAt: new Date().toISOString(),
+      version: 1,
+    }),
+  );
+}
+
+function areCompleteAnswers(answers, data) {
+  if (!answers) return false;
+  return data.questions.every((question) =>
+    question.options.some((option) => option.id === answers[question.id]),
+  );
+}
+
+function getStorage(root) {
+  const view = root.ownerDocument?.defaultView;
+  if (!view) return null;
+
+  try {
+    return view.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 function renderLayoutDebugPanel({ ariaLabel, controls, description, title }) {
